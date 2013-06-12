@@ -48,6 +48,10 @@
  */
 #define API_EXPORTED LIBUSB_CALL DEFAULT_VISIBILITY
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define DEVICE_DESC_LENGTH		18
 
 #define USB_MAXENDPOINTS	32
@@ -996,6 +1000,7 @@ extern const struct usbi_os_backend * const usbi_backend;
 
 extern const struct usbi_os_backend linux_usbfs_backend;
 extern const struct usbi_os_backend darwin_backend;
+extern const struct usbi_os_backend haiku_usbkit_backend;
 extern const struct usbi_os_backend openbsd_backend;
 extern const struct usbi_os_backend netbsd_backend;
 extern const struct usbi_os_backend windows_backend;
@@ -1003,5 +1008,9 @@ extern const struct usbi_os_backend wince_backend;
 
 extern struct list_head active_contexts_list;
 extern usbi_mutex_static_t active_contexts_lock;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

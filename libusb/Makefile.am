@@ -7,13 +7,14 @@ lib_LTLIBRARIES = libusb-1.0.la
 POSIX_POLL_SRC = os/poll_posix.c
 LINUX_USBFS_SRC = os/linux_usbfs.c
 DARWIN_USB_SRC = os/darwin_usb.c
+HAIKU_USBKIT_SRC = os/haiku_usbkit.cpp
 OPENBSD_USB_SRC = os/openbsd_usb.c
 NETBSD_USB_SRC = os/netbsd_usb.c
 WINDOWS_USB_SRC = os/poll_windows.c os/windows_usb.c libusb-1.0.rc libusb-1.0.def
 WINCE_USB_SRC = os/wince_usb.c os/wince_usb.h
 
 EXTRA_DIST = $(LINUX_USBFS_SRC) $(DARWIN_USB_SRC) $(OPENBSD_USB_SRC) \
-	$(NETBSD_USB_SRC) $(WINDOWS_USB_SRC) $(WINCE_USB_SRC) \
+	$(NETBSD_USB_SRC) $(WINDOWS_USB_SRC) $(WINCE_USB_SRC) $(HAIKU_USBKIT_SRC) \
 	$(POSIX_POLL_SRC) \
 	os/threads_posix.c os/threads_windows.c \
 	os/linux_udev.c os/linux_netlink.c
@@ -33,6 +34,10 @@ endif
 if OS_DARWIN
 OS_SRC = $(DARWIN_USB_SRC) $(POSIX_POLL_SRC)
 AM_CFLAGS_EXT = -no-cpp-precomp
+endif
+
+if OS_HAIKU
+OS_SRC = $(HAIKU_USBKIT_SRC)
 endif
 
 if OS_OPENBSD
