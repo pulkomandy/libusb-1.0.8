@@ -36,6 +36,8 @@
 const struct usbi_os_backend * const usbi_backend = &linux_usbfs_backend;
 #elif defined(OS_DARWIN)
 const struct usbi_os_backend * const usbi_backend = &darwin_backend;
+#elif defined(OS_HAIKU)
+const struct usbi_os_backend * const usbi_backend = &haiku_usbkit_backend;
 #else
 #error "Unsupported OS"
 #endif

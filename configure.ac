@@ -7,6 +7,7 @@ m4_ifdef([AM_SILENT_RULES],[AM_SILENT_RULES([yes])])
 
 AC_PREREQ([2.50])
 AC_PROG_CC
+AC_PROG_CXX
 AC_PROG_LIBTOOL
 AC_C_INLINE
 AM_PROG_CC_C_O
@@ -30,12 +31,20 @@ case $host in
 	backend="darwin"
 	AM_LDFLAGS="-Wl,-framework -Wl,IOKit -Wl,-framework -Wl,CoreFoundation -Wl,-prebind -no-undefined"
 	;;
+*-haiku*)
+	AC_DEFINE(OS_HAIKU, [], [Haiku backend])
+	AC_SUBST(OS_HAIKU)
+	AC_MSG_RESULT([Haiku])
+	backend="haiku"
+	AM_LDFLAGS="-ldevice"
+	;;
 *)
 	AC_MSG_ERROR([unsupported operating system])
 esac
 
 AM_CONDITIONAL([OS_LINUX], [test "x$backend" == "xlinux"])
 AM_CONDITIONAL([OS_DARWIN], [test "x$backend" == "xdarwin"])
+AM_CONDITIONAL([OS_HAIKU], [test "x$backend" == "xhaiku"])
 
 # Library versioning
 lt_major="0"

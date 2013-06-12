@@ -2,8 +2,9 @@ lib_LTLIBRARIES = libusb-1.0.la
 
 LINUX_USBFS_SRC = os/linux_usbfs.h os/linux_usbfs.c
 DARWIN_USB_SRC = os/darwin_usb.h os/darwin_usb.c
+HAIKU_USBKIT_SRC = os/haiku_usbkit.cpp
 
-EXTRA_DIST = $(LINUX_USBFS_SRC) $(DARWIN_USB_SRC)
+EXTRA_DIST = $(LINUX_USBFS_SRC) $(DARWIN_USB_SRC) $(HAIKU_USBKIT_SRC)
 
 if OS_LINUX
 OS_SRC = $(LINUX_USBFS_SRC)
@@ -14,7 +15,11 @@ OS_SRC = $(DARWIN_USB_SRC)
 AM_CFLAGS_EXT = -no-cpp-precomp
 endif
 
-libusb_1_0_la_CFLAGS = $(VISIBILITY_CFLAGS) $(AM_CFLAGS) -pthread
+if OS_HAIKU
+OS_SRC = $(HAIKU_USBKIT_SRC)
+endif
+
+libusb_1_0_la_CFLAGS = $(VISIBILITY_CFLAGS) $(AM_CFLAGS)
 libusb_1_0_la_SOURCES = libusbi.h core.c descriptor.c io.c sync.c $(OS_SRC)
 
 hdrdir = $(includedir)/libusb-1.0
