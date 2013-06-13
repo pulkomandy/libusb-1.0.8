@@ -148,8 +148,13 @@ static inline void *usbi_reallocf(void *ptr, size_t size)
         const typeof( ((type *)0)->member ) *mptr = (ptr);    \
         (type *)( (char *)mptr - offsetof(type,member) );})
 
-#define MIN(a, b)	((a) < (b) ? (a) : (b))
-#define MAX(a, b)	((a) > (b) ? (a) : (b))
+#ifndef MIN
+	#define MIN(a, b)	((a) < (b) ? (a) : (b))
+#endif
+
+#ifndef MAX
+	#define MAX(a, b)	((a) > (b) ? (a) : (b))
+#endif
 
 #define TIMESPEC_IS_SET(ts) ((ts)->tv_sec != 0 || (ts)->tv_nsec != 0)
 
@@ -439,7 +444,7 @@ void usbi_connect_device (struct libusb_device *dev);
 void usbi_disconnect_device (struct libusb_device *dev);
 
 /* Internal abstraction for poll (needs struct usbi_transfer on Windows) */
-#if defined(OS_LINUX) || defined(OS_DARWIN) || defined(OS_OPENBSD) || defined(OS_NETBSD)
+#if defined(OS_LINUX) || defined(OS_DARWIN) || defined(OS_OPENBSD) || defined(OS_NETBSD) || defined(OS_HAIKU)
 #include <unistd.h>
 #include "os/poll_posix.h"
 #elif defined(OS_WINDOWS) || defined(OS_WINCE)

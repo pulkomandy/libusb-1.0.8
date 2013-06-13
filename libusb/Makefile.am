@@ -37,7 +37,7 @@ AM_CFLAGS_EXT = -no-cpp-precomp
 endif
 
 if OS_HAIKU
-OS_SRC = $(HAIKU_USBKIT_SRC)
+OS_SRC = $(HAIKU_USBKIT_SRC) $(POSIX_POLL_SRC)
 endif
 
 if OS_OPENBSD

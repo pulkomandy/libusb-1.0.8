@@ -17,8 +17,6 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include "libusbi.h"
-
 #include <config.h>
 #include <ctype.h>
 // #include <pthread.h>
@@ -35,6 +33,8 @@
 #include <Path.h>
 #include <String.h>
 #include <USBKit.h>
+
+#include "libusbi.h"
 
 
 #define TRACE 1
@@ -424,7 +424,7 @@ UsbDeviceHandle::_TransfersWorker()
 UsbTransfer::UsbTransfer(struct usbi_transfer* itransfer)
 	: fUsbiTransfer(itransfer)
 {
-	fLibusbTransfer = __USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
+	fLibusbTransfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
 	fDeviceHandle = *((UsbDeviceHandle**)fLibusbTransfer->dev_handle->os_priv);
 }
 
@@ -587,7 +587,7 @@ haiku_handle_events(struct libusb_context* ctx, struct pollfd* fds, nfds_t nfds,
 			continue;
 
 		num_ready--;
-		list_for_each_entry(handle, &ctx->open_devs, list) {
+		list_for_each_entry(handle, &ctx->open_devs, list, struct libusb_device_handle) {
 			deviceHandle = *((UsbDeviceHandle**)handle->os_priv);
 			if (deviceHandle->EventPipe(0) == pollfd->fd)
 				// Found source deviceHandle
@@ -923,45 +923,46 @@ haiku_clock_gettime(int clk_id, struct timespec *tp)
 
 const struct usbi_os_backend haiku_usbkit_backend = {
 
-	"Haiku USBKit",
+	/*.name =*/ "Haiku USBKit",
+	/*.caps =*/ 0,
+	/*.init =*/ haiku_init,
+	/*.exit =*/ haiku_exit,
+	/*.get_device_list =*/ haiku_get_device_list,
+	/*.hotplub_poll =*/ NULL,
+	
+	/*.open =*/ haiku_open_device,
+	/*.close =*/ haiku_close_device,
+	/*.get_device_descriptor =*/ haiku_get_device_descriptor,
+	/*.get_active_config_descriptor =*/ haiku_get_active_config_descriptor,
+	/*.get_config_descriptor =*/ haiku_get_config_descriptor,
+	/*.get_config_descriptor_by_value =*/ NULL,
 
-	haiku_init,
-	haiku_exit,
+	/*.get_configuration =*/ haiku_get_configuration,
+	/*.set_configuration =*/ haiku_set_configuration,
+	/*.claim_interface =*/ haiku_claim_interface,
+	/*.release_interface =*/ haiku_release_interface,
 
-	haiku_get_device_list,
-	haiku_open_device,
-	haiku_close_device,
-	haiku_get_device_descriptor,
+	/*.set_interface_altsetting =*/ haiku_set_interface_altsetting,
+	/*.clear_halt =*/ haiku_clear_halt,
+	/*.reset_device =*/ haiku_reset_device,
 
-	haiku_get_active_config_descriptor,
-	haiku_get_config_descriptor,
-	haiku_get_configuration,
-	haiku_set_configuration,
+	/*.kernel_driver_active =*/ NULL,
+	/*.detach_kernel_driver =*/ NULL,
+	/*.attach_kernel_driver =*/ NULL,
 
-	haiku_claim_interface,
-	haiku_release_interface,
+	/*.destroy_device =*/ haiku_destroy_device,
 
-	haiku_set_interface_altsetting,
-	haiku_clear_halt,
-	haiku_reset_device,
+	/*.submit_transfer =*/ haiku_submit_transfer,
+	/*.cancel_transfer =*/ haiku_cancel_transfer,
+	/*.clear_transfer_priv =*/ haiku_clear_transfer_priv,
 
-	NULL,	// kernel_driver_active
-	NULL, 	// detach_kernel_driver
-	NULL,	// attach_kernel_driver
+	/*.handle_events =*/ haiku_handle_events,
 
-	haiku_destroy_device,
+	/*.clock_gettime =*/ haiku_clock_gettime,
 
-	haiku_submit_transfer,
-	haiku_cancel_transfer,
-	haiku_clear_transfer_priv,
-
-	haiku_handle_events,
-
-	haiku_clock_gettime,
-
-	sizeof(UsbDeviceInfo*),		// device_priv_size
-	sizeof(UsbDeviceHandle*),	// device_handle_priv_size
-	sizeof(UsbTransfer*),		// transfer_priv_size
-	0,							// add_iso_packet_size
+	/*.device_priv_size =*/ sizeof(UsbDeviceInfo*),
+	/*.device_handle_priv_size =*/ sizeof(UsbDeviceHandle*),
+	/*.transfer_priv_size =*/ sizeof(UsbTransfer*),	
+	/*.add_iso_packet_size =*/ 0,
 };
 

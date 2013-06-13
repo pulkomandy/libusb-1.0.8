@@ -85,6 +85,7 @@ case $host in
 	AC_SUBST(OS_HAIKU)
 	AC_MSG_RESULT([Haiku])
 	backend="haiku"
+	threads="posix"
 	AM_LDFLAGS="-ldevice"
 	;;
 *)
@@ -145,6 +146,12 @@ netbsd)
 	AC_SUBST(OS_NETBSD)
 	THREAD_CFLAGS="-pthread"
 	LIBS="-pthread"
+	AC_CHECK_HEADERS([poll.h])
+	AC_DEFINE([POLL_NFDS_TYPE],[nfds_t],[type of second poll() argument])
+	;;
+haiku)
+	AC_DEFINE(OS_HAIKU, 1, [Haiku USBKit backend])
+	AC_SUBST(OS_HAIKU)
 	AC_CHECK_HEADERS([poll.h])
 	AC_DEFINE([POLL_NFDS_TYPE],[nfds_t],[type of second poll() argument])
 	;;

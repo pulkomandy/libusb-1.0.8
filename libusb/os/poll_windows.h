@@ -106,12 +106,6 @@ struct winfd overlapped_to_winfd(OVERLAPPED* overlapped);
 #include <winsock.h>	// defines timeval functions on DDK
 #endif
 
-#if !defined(TIMESPEC_TO_TIMEVAL)
-#define TIMESPEC_TO_TIMEVAL(tv, ts) {                   \
-	(tv)->tv_sec = (long)(ts)->tv_sec;                  \
-	(tv)->tv_usec = (long)(ts)->tv_nsec / 1000;         \
-}
-#endif
 #if !defined(timersub)
 #define timersub(a, b, result)                          \
 do {                                                    \
