@@ -508,6 +508,40 @@ UsbRoster::DeviceAdded(BUSBDevice* device)
 	printf("UsbRoster::DeviceAdded(%p: %s%s)\n", deviceInfo, kBusRootPath, 
 		deviceInfo->Location());
 #endif
+	bool deviceWasAllocated = false;
+
+	libusb_context* ctx;
+	USBI_GET_CONTEXT(ctx);
+
+	struct libusb_device* dev = usbi_get_device_by_session_id(ctx, (unsigned long)deviceInfo);
+	if (dev) {
+		usbi_info (ctx, "using existing device for location ID 0x%08x", deviceInfo);
+	} else {
+		usbi_info (ctx, "allocating new device for session ID 0x%08x", deviceInfo);
+		dev = usbi_alloc_device(ctx, (unsigned long)deviceInfo);
+		if (!dev) {
+			goto error;
+		}
+		deviceWasAllocated = true;
+	}
+
+	*((UsbDeviceInfo**)dev->os_priv) = deviceInfo;
+
+	// TODO: handle device address mapping for devices in non-root hub(s)
+	sscanf(deviceInfo->Location(), "/%d/%d", &dev->bus_number, &dev->device_address);
+	dev->num_configurations = (uint8_t) deviceInfo->CountConfigurations();
+
+	// printf("bus %d, address %d, # of configs %d\n", dev->bus_number,
+	//	dev->device_address, dev->num_configurations);
+
+    if(usbi_sanitize_device(dev) < 0)
+   		goto error;
+
+    usbi_connect_device (dev);
+
+error:
+	if (deviceWasAllocated)
+		libusb_unref_device(dev);
 
 	BAutolock locker(fDevicesLock);
 	return fDevices.AddItem(deviceInfo);
@@ -608,79 +642,6 @@ haiku_handle_events(struct libusb_context* ctx, struct pollfd* fds, nfds_t nfds,
 out:
 	pthread_mutex_unlock(&ctx->open_devs_lock);
 	return status;
-}
-
-
-// Devices discovery
-
-
-static int
-haiku_get_device_list(struct libusb_context *ctx,
-	struct discovered_devs** _discdevs)
-{
-	int ret = 0;
-	struct discovered_devs* discdevs;
-
-	BList devices;
-	if (gUsbRoster.GetDevices(devices) != B_OK)
-		return -1;
-#if TRACE
-	printf("UsbRoster::GetDevices() returned %d devices\n", devices.CountItems());
-#endif
-
-	UsbDeviceInfo* deviceInfo;
-
-	int i = 0;
-	while (deviceInfo = (UsbDeviceInfo*)devices.ItemAt(i++)) {
-		if (!deviceInfo)
-			continue;
-
-		bool deviceWasAllocated = false;
-
-		struct libusb_device* dev = usbi_get_device_by_session_id(ctx, (unsigned long)deviceInfo);
-		if (dev) {
-			usbi_info (ctx, "using existing device for location ID 0x%08x", deviceInfo);
-		} else {
-			usbi_info (ctx, "allocating new device for session ID 0x%08x", deviceInfo);
-			dev = usbi_alloc_device(ctx, (unsigned long)deviceInfo);
-			if (!dev) {
-				ret = LIBUSB_ERROR_NO_MEM;
-				goto error;
-			}
-			deviceWasAllocated = true;
-		}
-
-		*((UsbDeviceInfo**)dev->os_priv) = deviceInfo;
-
-		// TODO: handle device address mapping for devices in non-root hub(s)
-		sscanf(deviceInfo->Location(), "/%d/%d", &dev->bus_number, &dev->device_address);
-		dev->num_configurations = (uint8_t) deviceInfo->CountConfigurations();
-
-		// printf("bus %d, address %d, # of configs %d\n", dev->bus_number,
-		//	dev->device_address, dev->num_configurations);
-
-	    ret = usbi_sanitize_device(dev);
-	    if (ret < 0)
-    		goto error;
-
-	    /* append the device to the list of discovered devices */
-	    discdevs = discovered_devs_append(*_discdevs, dev);
-	    if (!discdevs) {
-    		ret = LIBUSB_ERROR_NO_MEM;
-      		goto error;
-    	}
-	    *_discdevs = discdevs;
-	    continue;
-
-error:
-		if (deviceWasAllocated)
-			libusb_unref_device(dev);
-
-		// on memory error, break enumeration loop...
-		if (ret == LIBUSB_ERROR_NO_MEM)
-			break;
-	}
-	return ret;
 }
 
 
@@ -927,8 +888,8 @@ const struct usbi_os_backend haiku_usbkit_backend = {
 	/*.caps =*/ 0,
 	/*.init =*/ haiku_init,
 	/*.exit =*/ haiku_exit,
-	/*.get_device_list =*/ haiku_get_device_list,
-	/*.hotplub_poll =*/ NULL,
+	/*.get_device_list =*/ NULL,
+	/*.hotplug_poll =*/ NULL,
 	
 	/*.open =*/ haiku_open_device,
 	/*.close =*/ haiku_close_device,
