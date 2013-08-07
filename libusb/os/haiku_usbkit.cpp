@@ -63,9 +63,6 @@ public:
 	uint32								ActiveConfiguration() const;
 
 private:
-	usb_configuration_descriptor*		_BuildConfigurationDescriptor(
-											BUSBDevice* usbkit_device, int index);
-
 	usb_device_descriptor				fDeviceDescriptor;
 	usb_configuration_descriptor**		fConfigurationDescriptors;
 	uint32								fActiveConfiguration;
@@ -138,83 +135,36 @@ UsbDeviceInfo::UsbDeviceInfo(BUSBDevice* usbkit_device)
 	if (!usbkit_device)
 		return;
 
+	// Cache device descriptor
 	memcpy(&fDeviceDescriptor, usbkit_device->Descriptor(), sizeof(fDeviceDescriptor));
 	fPath = strdup(usbkit_device->Location());
 
+	// Cache all device configuration(s) complete descriptor(s)
 	fConfigurationDescriptors = new usb_configuration_descriptor*[CountConfigurations()];
 	if (!fConfigurationDescriptors)
 		return;
 
-	for (uint32 i = 0; i < CountConfigurations(); i++)
-		fConfigurationDescriptors[i] = _BuildConfigurationDescriptor(usbkit_device, i);
-
+	for (uint32 i = 0; i < CountConfigurations(); i++) {
+		const BUSBConfiguration* configuration = usbkit_device->ConfigurationAt(i);
+		const usb_configuration_descriptor* descriptor = NULL;
+		if (configuration != NULL)
+			descriptor = configuration->Descriptor();
+			
+		if (descriptor != NULL) {
+			fConfigurationDescriptors[i]
+				= (usb_configuration_descriptor*)malloc(descriptor->total_length);
+			if (fConfigurationDescriptors[i] != NULL) {
+				size_t size = usbkit_device->GetDescriptor(USB_DESCRIPTOR_CONFIGURATION,
+					i, 0, fConfigurationDescriptors[i], descriptor->total_length);
+			}
+		} else
+			fConfigurationDescriptors[i] = NULL;
+	}
+			
+	// Cache active configuration index
 	fActiveConfiguration = usbkit_device->ActiveConfiguration()->Index();
 }
 
-		
-usb_configuration_descriptor*
-UsbDeviceInfo::_BuildConfigurationDescriptor(BUSBDevice* usbkit_device, int index)
-{
-	const BUSBConfiguration* configuration = usbkit_device->ConfigurationAt(index);
-	if (!configuration)
-		return NULL;
-
-	const usb_configuration_descriptor* configurationDescriptor =
-		configuration->Descriptor();
-
-	
-	usb_configuration_descriptor* fullDescriptor =
-		(usb_configuration_descriptor*)malloc(configurationDescriptor->total_length);
-
-	uint8* p = (uint8*)fullDescriptor;
-	if (!p)
-		return NULL;
-
-	memcpy(p, configurationDescriptor, sizeof(usb_configuration_descriptor));
-	p += sizeof(usb_configuration_descriptor);
-
-	for (uint32 i = 0; i < configuration->CountInterfaces(); i++) {
-		const BUSBInterface *interface = configuration->InterfaceAt(i);
-
-		for (uint32 j = 0; j < interface->CountAlternates(); j++) {
-			const BUSBInterface *alternate = interface->AlternateAt(j);
-			const usb_interface_descriptor* interfaceDescriptor = interface->Descriptor();
-
-			memcpy(p, interfaceDescriptor, sizeof(usb_interface_descriptor));
-			p += sizeof(usb_interface_descriptor);
-
-			for (uint32 k = 0; k < alternate->CountEndpoints(); k++) {
-				const BUSBEndpoint *endpoint = alternate->EndpointAt(k);
-				if (!endpoint)
-					continue;
-
-				const usb_endpoint_descriptor* endpointDescriptor = endpoint->Descriptor();
-				memcpy(p, endpointDescriptor, sizeof(usb_endpoint_descriptor));
-				p += sizeof(usb_endpoint_descriptor);
-			}
-			
-			// FIXME: we don't known in which order these extra descriptors, if any, came.
-			// Some could be USB2 endpoint companion descriptor for instance, which are 
-			// supposed to be just following the corresponding endpoint descriptor.
-			// Currently, we wont honor that order.
-			char buffer[256];
-			usb_descriptor* descriptor = (usb_descriptor*)buffer;
-			for (uint32 k = 0; alternate->OtherDescriptorAt(k, descriptor, 256) == B_OK; k++) {
-				memcpy(p, descriptor, descriptor->generic.length);
-				p += descriptor->generic.length;
-			}
-		}			
-	}
-
-#if TRACE	
-	printf("Caching %s%s configuration #%d (total_length=%d, computed=%d, sizeof(ucd)=%d)\n",
-		kBusRootPath, fPath, index, 
-		configurationDescriptor->total_length, (p - (uint8*)fullDescriptor),
-		sizeof(usb_configuration_descriptor));
-#endif
-
-	return fullDescriptor;
-}
 
 
 UsbDeviceInfo::~UsbDeviceInfo()
@@ -243,12 +193,8 @@ UsbDeviceInfo::Get()
 inline void
 UsbDeviceInfo::Put()
 {
-	if (atomic_add(&fOpenCount, -1) <= 0)
-#if TRACE	
-		printf("Put() called with fOpenCount < 1!\n");
-#else
-		;
-#endif
+	if (atomic_add(&fOpenCount, -1) == 1)
+		delete this;
 }
 
 
@@ -490,29 +436,17 @@ public:
 	status_t			GetDevices(BList& list);
 
 private:
+	status_t			_AddNewDevice(struct libusb_context* ctx, UsbDeviceInfo* info);
+	
 	BLocker	fDevicesLock;
 	BList	fDevices;
 };
 
-
 status_t
-UsbRoster::DeviceAdded(BUSBDevice* device)
+UsbRoster::_AddNewDevice(struct libusb_context* ctx, UsbDeviceInfo* deviceInfo)
 {
-	if (device->IsHub())
-		// Ignore hub device(s)
-		return B_OK;
-
-	UsbDeviceInfo* deviceInfo = new UsbDeviceInfo(device);
-
-#if TRACE
-	printf("UsbRoster::DeviceAdded(%p: %s%s)\n", deviceInfo, kBusRootPath, 
-		deviceInfo->Location());
-#endif
 	bool deviceWasAllocated = false;
-
-	libusb_context* ctx;
-	USBI_GET_CONTEXT(ctx);
-
+	
 	struct libusb_device* dev = usbi_get_device_by_session_id(ctx, (unsigned long)deviceInfo);
 	if (dev) {
 		usbi_info (ctx, "using existing device for location ID 0x%08x", deviceInfo);
@@ -542,6 +476,33 @@ UsbRoster::DeviceAdded(BUSBDevice* device)
 error:
 	if (deviceWasAllocated)
 		libusb_unref_device(dev);
+	
+	return B_OK;
+}
+
+
+status_t
+UsbRoster::DeviceAdded(BUSBDevice* device)
+{
+	if (device->IsHub())
+		// Ignore hub device(s)
+		return B_OK;
+
+	UsbDeviceInfo* deviceInfo = new UsbDeviceInfo(device);
+	deviceInfo->Get();
+	
+#if TRACE
+	printf("UsbRoster::DeviceAdded(%p: %s%s)\n", deviceInfo, kBusRootPath, 
+		deviceInfo->Location());
+#endif
+ 
+	// Add this new device to each active context's device list
+	struct libusb_context *ctx;
+	usbi_mutex_lock(&active_contexts_lock);
+	list_for_each_entry(ctx, &active_contexts_list, list, struct libusb_context) {
+		_AddNewDevice(ctx, deviceInfo);
+	}
+	usbi_mutex_unlock(&active_contexts_lock);
 
 	BAutolock locker(fDevicesLock);
 	return fDevices.AddItem(deviceInfo);
@@ -557,19 +518,35 @@ UsbRoster::DeviceRemoved(BUSBDevice* device)
 	int i = 0;
 	while (deviceInfo = (UsbDeviceInfo*)fDevices.ItemAt(i++)) {
 		if (!deviceInfo)
-			continue;
+			break;
 
 		if (strcmp(deviceInfo->Location(), device->Location()) == 0)
 			break;
 	}
 
-	if (deviceInfo) {
+	if (!deviceInfo)
+		return;
+
 #if TRACE		
-		printf("UsbRoster::DeviceRemoved(%p: %s%s)\n", deviceInfo, 
-			kBusRootPath, deviceInfo->Location());
+	printf("UsbRoster::DeviceRemoved(%p: %s%s)\n", deviceInfo, 
+		kBusRootPath, deviceInfo->Location());
 #endif		
-		fDevices.RemoveItem(deviceInfo);
+
+	// Remove this device from each active context's device list 
+	struct libusb_context *ctx;
+	struct libusb_device *dev;
+	
+	usbi_mutex_lock(&active_contexts_lock);
+	list_for_each_entry(ctx, &active_contexts_list, list, struct libusb_context) {
+		dev = usbi_get_device_by_session_id (ctx, (unsigned long)deviceInfo);
+		if (dev != NULL) {
+			usbi_disconnect_device (dev);
+		}
 	}
+	usbi_mutex_static_unlock(&active_contexts_lock);
+
+	fDevices.RemoveItem(deviceInfo);
+	deviceInfo->Put();
 }
 
 
