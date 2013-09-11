@@ -481,10 +481,9 @@ UsbRoster::DeviceAdded(BUSBDevice* device)
 		device->Location());
 #endif
  
-	if (device->IsHub())
-		// Ignore hub device(s)
-		return B_OK;
-
+ 	if (device->IsHub())
+ 		return B_ERROR;
+ 
 	UsbDeviceInfo* deviceInfo = new UsbDeviceInfo(device);
 	deviceInfo->Get();
 	
@@ -498,7 +497,9 @@ UsbRoster::DeviceAdded(BUSBDevice* device)
 	usbi_mutex_unlock(&active_contexts_lock);
 
 	BAutolock locker(fDevicesLock);
-	return fDevices.AddItem(deviceInfo);
+	fDevices.AddItem(deviceInfo);
+	
+	return B_OK;
 }
 
 
@@ -509,10 +510,6 @@ UsbRoster::DeviceRemoved(BUSBDevice* device)
 	printf("UsbRoster::DeviceRemoved(BUSBDevice %p: %s%s)\n", device, kBusRootPath, 
 		device->Location());
 #endif
-
-	if (device->IsHub())
-		// Ignore hub device(s)
-		return;
 
 	BAutolock locker(fDevicesLock);
 	UsbDeviceInfo* deviceInfo;
