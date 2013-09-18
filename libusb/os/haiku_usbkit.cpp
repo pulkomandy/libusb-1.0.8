@@ -27,6 +27,7 @@
 // #include <time.h>
 
 #include <Autolock.h>
+#include <ByteOrder.h>
 #include <List.h>
 #include <Locker.h>
 #include <OS.h>
@@ -406,7 +407,11 @@ UsbTransfer::Do()
 			
 		ssize_t size = fDeviceHandle->Device()->ControlTransfer(
 			setup->bmRequestType, setup->bRequest, 
-			setup->wValue, setup->wIndex, setup->wLength, 
+			// these values from control setup are in bus order endianess
+			B_LENDIAN_TO_HOST_INT16(setup->wValue), 
+			B_LENDIAN_TO_HOST_INT16(setup->wIndex), 
+			B_LENDIAN_TO_HOST_INT16(setup->wLength), 
+			// data is stored after the control setup block
 			fLibusbTransfer->buffer + LIBUSB_CONTROL_SETUP_SIZE);
 		break;
 	}
