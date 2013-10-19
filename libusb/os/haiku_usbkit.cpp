@@ -19,6 +19,7 @@
 
 #include <config.h>
 #include <ctype.h>
+#include <errno.h>
 // #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,8 +39,8 @@
 #include "libusbi.h"
 
 
-#define TRACE 1
-// #undef TRACE
+//#define TRACE 1
+#undef TRACE
 
 const char* kBusRootPath = "/dev/bus/usb";
 
@@ -258,6 +259,10 @@ UsbDeviceHandle::UsbDeviceHandle(UsbDeviceInfo* deviceInfo)
 	fcntl(fEventPipes[1], F_SETFD, O_NONBLOCK);
 	
 	fTransfersSem = create_sem(0, "Transfers queue sem");
+
+	fTransfersThread = spawn_thread(_TransfersThread, "libusb device worker",
+		B_NORMAL_PRIORITY, this);
+	resume_thread(fTransfersThread);
 }
 
 
@@ -282,7 +287,6 @@ UsbDeviceHandle::EventPipe(int index) const
 		return -1;
 	return fEventPipes[index];
 }
-
 
 status_t
 UsbDeviceHandle::ClearStallEndpoint(int endpoint)
@@ -343,7 +347,7 @@ UsbDeviceHandle::_TransfersWorker()
 {
 	while (true) {
 		status_t status = acquire_sem(fTransfersSem);
-		if (status == B_OK || status == B_BAD_SEM_ID)
+		if (status == B_BAD_SEM_ID)
 			break;
 		if (status == B_INTERRUPTED)
 			continue;
@@ -384,16 +388,14 @@ UsbTransfer::~UsbTransfer()
 int
 UsbTransfer::Submit()
 {
-	fDeviceHandle->SubmitTransfer(this);
-	return LIBUSB_ERROR_INVALID_PARAM;
+	return fDeviceHandle->SubmitTransfer(this);
 }
 
 
 int
 UsbTransfer::Cancel()
 {
-	// TODO
-	return LIBUSB_ERROR_INVALID_PARAM;
+	return fDeviceHandle->CancelTransfer(this);
 }
 
 
@@ -413,6 +415,8 @@ UsbTransfer::Do()
 			B_LENDIAN_TO_HOST_INT16(setup->wLength), 
 			// data is stored after the control setup block
 			fLibusbTransfer->buffer + LIBUSB_CONTROL_SETUP_SIZE);
+
+		fUsbiTransfer->transferred = size;
 		break;
 	}
 	case LIBUSB_TRANSFER_TYPE_BULK:
@@ -426,6 +430,8 @@ UsbTransfer::Do()
 		usbi_err(TRANSFER_CTX(fLibusbTransfer), "unknown endpoint type %d", 
 			fLibusbTransfer->type);
 	}
+
+	write(fDeviceHandle->EventPipe(1), &fUsbiTransfer, sizeof(fUsbiTransfer));
 }
 
 
@@ -574,26 +580,57 @@ haiku_exit(void)
 
 
 static int
+_errno_to_libusb(int err)
+{
+	switch (err) {
+	case EIO:
+		return (LIBUSB_ERROR_IO);
+	case EACCES:
+		return (LIBUSB_ERROR_ACCESS);
+	case ENOENT:
+		return (LIBUSB_ERROR_NO_DEVICE);
+	case ENOMEM:
+		return (LIBUSB_ERROR_NO_MEM);
+	}
+
+	usbi_dbg("error: %s", strerror(err));
+
+	return (LIBUSB_ERROR_OTHER);
+}
+
+
+static int
 haiku_handle_events(struct libusb_context* ctx, struct pollfd* fds, nfds_t nfds, int num_ready)
 {
-	int status;
+	struct libusb_device_handle *handle;
+	struct usbi_transfer *itransfer;
+	int err;
+	int i;
+
+	usbi_dbg("");
 
 	pthread_mutex_lock(&ctx->open_devs_lock);
 
-	for (int i = 0; i < nfds && num_ready > 0; i++) {
+	for (i = 0; i < nfds && num_ready > 0; i++) {
 		struct pollfd *pollfd = &fds[i];
-		struct libusb_device_handle *handle;
 		UsbDeviceHandle* deviceHandle = NULL;
 
 		if (!pollfd->revents)
 			continue;
 
 		num_ready--;
-		list_for_each_entry(handle, &ctx->open_devs, list, struct libusb_device_handle) {
+		list_for_each_entry(handle, &ctx->open_devs, list,
+			struct libusb_device_handle) {
 			deviceHandle = *((UsbDeviceHandle**)handle->os_priv);
 			if (deviceHandle->EventPipe(0) == pollfd->fd)
 				// Found source deviceHandle
 				break;
+		}
+
+		if (NULL == deviceHandle) {
+			usbi_dbg("fd %d is not an event pipe!", pollfd->fd);
+			err = ENOENT;
+			break;
 		}
 
 		if (pollfd->revents & POLLERR) {
@@ -602,14 +639,22 @@ haiku_handle_events(struct libusb_context* ctx, struct pollfd* fds, nfds_t nfds,
 			continue;
 		}
 
-		// TODO: read message from pipe, and handle it:
-		// transfer completion message or device gone message?
+		if (read(deviceHandle->EventPipe(0), &itransfer, sizeof(itransfer)) < 0) {
+			err = errno;
+			break;
+		}
+
+		if ((err = usbi_handle_transfer_completion(itransfer,
+		    LIBUSB_TRANSFER_COMPLETED)))
+			break;
 	}
 
-	status = 0;
-out:
 	pthread_mutex_unlock(&ctx->open_devs_lock);
-	return status;
+
+	if (err)
+		return _errno_to_libusb(err);
+
+	return (LIBUSB_SUCCESS);
 }
 
 
@@ -843,8 +888,14 @@ haiku_clear_transfer_priv(struct usbi_transfer* itransfer)
 
 
 static int
-haiku_clock_gettime(int clk_id, struct timespec *tp)
+haiku_clock_gettime(int clkid, struct timespec *tp)
 {
+	if (clkid == USBI_CLOCK_REALTIME)
+		return clock_gettime(CLOCK_REALTIME, tp);
+
+	if (clkid == USBI_CLOCK_MONOTONIC)
+		return clock_gettime(CLOCK_MONOTONIC, tp);
+
 	return LIBUSB_ERROR_INVALID_PARAM;
 }
 
