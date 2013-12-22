@@ -158,6 +158,22 @@ UsbDeviceInfo::UsbDeviceInfo(BUSBDevice* usbkit_device)
 			if (fConfigurationDescriptors[i] != NULL) {
 				size_t size = usbkit_device->GetDescriptor(USB_DESCRIPTOR_CONFIGURATION,
 					i, 0, fConfigurationDescriptors[i], descriptor->total_length);
+
+				for(uint32 j = 0; j < configuration->CountInterfaces(); j++) {
+					const BUSBInterface* iface = configuration->InterfaceAt(j);
+					const usb_interface_descriptor* ifd = iface->Descriptor();
+					memcpy(((unsigned char*)fConfigurationDescriptors[i]) + size,
+						ifd, ifd->length);
+					size += ifd->length;
+					for(int k = 0; k < iface->CountEndpoints(); k++)
+					{
+						const BUSBEndpoint* ep = iface->EndpointAt(k);
+						const usb_endpoint_descriptor* epd = ep->Descriptor();
+						memcpy(((unsigned char*)fConfigurationDescriptors[i])
+							+ size, epd, epd->length);
+					size += epd->length;
+					}
+				}
 			}
 		} else
 			fConfigurationDescriptors[i] = NULL;
@@ -410,9 +426,9 @@ UsbTransfer::Do()
 		ssize_t size = fDeviceHandle->Device()->ControlTransfer(
 			setup->bmRequestType, setup->bRequest, 
 			// these values from control setup are in bus order endianess
-			B_LENDIAN_TO_HOST_INT16(setup->wValue), 
-			B_LENDIAN_TO_HOST_INT16(setup->wIndex), 
-			B_LENDIAN_TO_HOST_INT16(setup->wLength), 
+			B_LENDIAN_TO_HOST_INT16(setup->wValue),
+			B_LENDIAN_TO_HOST_INT16(setup->wIndex),
+			B_LENDIAN_TO_HOST_INT16(setup->wLength),
 			// data is stored after the control setup block
 			fLibusbTransfer->buffer + LIBUSB_CONTROL_SETUP_SIZE);
 
@@ -644,8 +660,13 @@ haiku_handle_events(struct libusb_context* ctx, struct pollfd* fds, nfds_t nfds,
 			break;
 		}
 
-		if ((err = usbi_handle_transfer_completion(itransfer,
-		    LIBUSB_TRANSFER_COMPLETED)))
+		libusb_transfer_status status = LIBUSB_TRANSFER_COMPLETED;
+		if (itransfer->transferred < 0) {
+			itransfer->transferred = 0;
+			status = LIBUSB_TRANSFER_ERROR;
+		}
+
+		if ((err = usbi_handle_transfer_completion(itransfer, status)))
 			break;
 	}
 
@@ -690,13 +711,12 @@ haiku_get_config_descriptor(struct libusb_device* dev, uint8_t config_index,
 	if (!descriptor)
 		return LIBUSB_ERROR_INVALID_PARAM;
 
-	// TODO: assemble the config desc from device, interfaces and endpoints desc
 	if (len > descriptor->total_length)
 		len = descriptor->total_length;
 	memcpy(buffer, descriptor, len);
 
 	*host_endian = 0;
-	return 0;
+	return len;
 }
 
 
