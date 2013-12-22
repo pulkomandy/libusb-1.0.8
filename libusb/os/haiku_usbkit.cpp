@@ -394,14 +394,19 @@ UsbTransfer::UsbTransfer(struct usbi_transfer* itransfer)
 	fLibusbTransfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
 	fDeviceHandle = *((UsbDeviceHandle**)fLibusbTransfer->dev_handle->os_priv);
 
-	const BUSBInterface* interface = fDeviceHandle->Device()
-		->ConfigurationAt(0)->InterfaceAt(0);
-		// FIXME handle multiple configurations/interfaces.
+	const BUSBConfiguration* configuration = fDeviceHandle->Device()->ConfigurationAt(0);
+		// FIXME handle multiple configurations.
+	for (int i = 0; i < configuration->CountInterfaces(); i++)
+	{
+		const BUSBInterface* interface = configuration->InterfaceAt(i);
 
-	for (int i = 0; i < interface->CountEndpoints(); i++) {
-		fEndpoint = interface->EndpointAt(i);
-		if (fEndpoint->Descriptor()->endpoint_address == fLibusbTransfer->endpoint)
-			return;
+		for (int e = 0; e < interface->CountEndpoints(); e++) {
+			fEndpoint = interface->EndpointAt(e);
+			if (fEndpoint->Descriptor()->endpoint_address
+					== fLibusbTransfer->endpoint) {
+				return;
+			}
+		}
 	}
 
 	fEndpoint = NULL;
@@ -434,15 +439,27 @@ UsbTransfer::Do()
 	case LIBUSB_TRANSFER_TYPE_CONTROL: {
 		struct libusb_control_setup* setup 
 			= (struct libusb_control_setup*)fLibusbTransfer->buffer;
-			
-		ssize_t size = fDeviceHandle->Device()->ControlTransfer(
-			setup->bmRequestType, setup->bRequest, 
-			// these values from control setup are in bus order endianess
-			B_BENDIAN_TO_HOST_INT16(setup->wValue),
-			B_BENDIAN_TO_HOST_INT16(setup->wIndex),
-			setup->wLength,
-			// data is stored after the control setup block
-			fLibusbTransfer->buffer + LIBUSB_CONTROL_SETUP_SIZE);
+		ssize_t size;
+
+		if (fEndpoint) {
+			size = fEndpoint->ControlTransfer(
+				setup->bmRequestType, setup->bRequest,
+				// these values from control setup are in bus order endianess
+				B_BENDIAN_TO_HOST_INT16(setup->wValue),
+				B_BENDIAN_TO_HOST_INT16(setup->wIndex),
+				setup->wLength,
+				// data is stored after the control setup block
+				fLibusbTransfer->buffer + LIBUSB_CONTROL_SETUP_SIZE);
+		} else {
+			size = fDeviceHandle->Device()->ControlTransfer(
+				setup->bmRequestType, setup->bRequest,
+				// these values from control setup are in bus order endianess
+				B_BENDIAN_TO_HOST_INT16(setup->wValue),
+				B_BENDIAN_TO_HOST_INT16(setup->wIndex),
+				setup->wLength,
+				// data is stored after the control setup block
+				fLibusbTransfer->buffer + LIBUSB_CONTROL_SETUP_SIZE);
+		}
 
 		fUsbiTransfer->transferred = size;
 		break;
@@ -451,6 +468,7 @@ UsbTransfer::Do()
 	case LIBUSB_TRANSFER_TYPE_INTERRUPT: {
 		ssize_t size = fEndpoint->BulkTransfer(fLibusbTransfer->buffer,
 			fLibusbTransfer->length);
+
 		fUsbiTransfer->transferred = size;
 		break;
 	}
