@@ -69,7 +69,7 @@ private:
 	usb_configuration_descriptor**		fConfigurationDescriptors;
 	uint32								fActiveConfiguration;
 	char*								fPath;
-	volatile int32						fOpenCount;
+	int32								fOpenCount;
 };
 
 
@@ -609,7 +609,7 @@ UsbRoster::DeviceRemoved(BUSBDevice* device)
 
 
 UsbRoster 		gUsbRoster;
-volatile int32	gInitCount = 0;
+int32			gInitCount = 0;
 
 static int
 haiku_init(struct libusb_context* ctx)
