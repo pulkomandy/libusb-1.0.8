@@ -445,8 +445,8 @@ UsbTransfer::Do()
 			size = fEndpoint->ControlTransfer(
 				setup->bmRequestType, setup->bRequest,
 				// these values from control setup are in bus order endianess
-				B_BENDIAN_TO_HOST_INT16(setup->wValue),
-				B_BENDIAN_TO_HOST_INT16(setup->wIndex),
+				B_LENDIAN_TO_HOST_INT16(setup->wValue),
+				B_LENDIAN_TO_HOST_INT16(setup->wIndex),
 				setup->wLength,
 				// data is stored after the control setup block
 				fLibusbTransfer->buffer + LIBUSB_CONTROL_SETUP_SIZE);
@@ -454,8 +454,8 @@ UsbTransfer::Do()
 			size = fDeviceHandle->Device()->ControlTransfer(
 				setup->bmRequestType, setup->bRequest,
 				// these values from control setup are in bus order endianess
-				B_BENDIAN_TO_HOST_INT16(setup->wValue),
-				B_BENDIAN_TO_HOST_INT16(setup->wIndex),
+				B_LENDIAN_TO_HOST_INT16(setup->wValue),
+				B_LENDIAN_TO_HOST_INT16(setup->wIndex),
 				setup->wLength,
 				// data is stored after the control setup block
 				fLibusbTransfer->buffer + LIBUSB_CONTROL_SETUP_SIZE);
